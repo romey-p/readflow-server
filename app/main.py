@@ -3,6 +3,7 @@ from fastapi import FastAPI
 from app.core.config import settings
 from app.core.db import db_instance
 from app.routers.analysis_router import router as analysis_router
+from app.routers.resource_router import router as resource_router
 from app.services.analysis_service import analysis_service
 
 @asynccontextmanager
@@ -20,6 +21,7 @@ app = FastAPI(
     lifespan=lifespan
 )
 app.include_router(analysis_router)
+app.include_router(resource_router)
 
 @app.get("/")
 def health_check():

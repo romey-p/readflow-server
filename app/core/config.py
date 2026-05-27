@@ -16,4 +16,6 @@ class Settings:
     WEIGHTS_DIR: str = os.path.join(BASE_DIR, "weights")
     WEIGHTS_PATH: str = os.path.join(BASE_DIR, "weights", "difficulty_regression_model.pt")
 
+    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
+
 settings = Settings()
