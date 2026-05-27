@@ -5,8 +5,11 @@ import json
 from fastapi import HTTPException
 from google import genai
 from google.genai import types
+from collections import defaultdict
+
 from app.core.prompts import VLM_SYSTEM_PROMPT
 from app.schemas.resource_schema import TextExtractionResponse
+from app.services.analysis_service import analysis_service
 
 ai_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
@@ -51,5 +54,33 @@ class ResourceService:
             
         except Exception as e:
             raise ValueError(f"VLM 처리 중 오류 발생: {str(e)}")
+        
+    @classmethod
+    def process_text_extraction_and_analysis(cls, file_bytes: bytes, mime_type: str) -> tuple[str, dict, list]:
+        cloudinary_url = cls.upload_image(file_bytes)
+        
+        vlm_res = cls.extract_layout(file_bytes, mime_type)
+        word_layouts = vlm_res.get("layout_coordinates", [])
+
+        sentence_buckets = defaultdict(list)
+        for item in word_layouts:
+            idx = item.get("sentence_index")
+            word = item.get("word")
+            sentence_buckets[idx].append(word)
+            
+        analyzed_sentences = []
+        for idx in sorted(sentence_buckets.keys()):
+            reconstructed_text = " ".join(sentence_buckets[idx])
+            
+            predicted_score, difficulty_level = analysis_service.predict_score(reconstructed_text)
+            
+            analyzed_sentences.append({
+                "sentence_index": idx,
+                "sentence_text": reconstructed_text,
+                "difficulty_score": predicted_score,
+                "difficulty_level": difficulty_level
+            })
+            
+        return cloudinary_url, vlm_res, analyzed_sentences
         
 resource_service = ResourceService()

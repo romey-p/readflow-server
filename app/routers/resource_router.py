@@ -34,22 +34,28 @@ async def process_image_resource(
     current_time = datetime.now(timezone.utc)
     
     try:
-        cloudinary_url = resource_service.upload_image(file_bytes, folder="readflow/images")
-        vlm_res = resource_service.extract_layout(file_bytes, file.content_type)
+        cloudinary_url, vlm_res, analyzed_sentences = resource_service.process_text_extraction_and_analysis(
+            file_bytes=file_bytes, 
+            mime_type=file.content_type
+        )
         
         resource_crud.create_resource(
             db=db, 
             resource_id=resource_id, 
             user_id=user_id, 
             cloudinary_url=cloudinary_url, 
-            vlm_res=vlm_res
+            vlm_res=vlm_res,
+            analyzed_sentences=analyzed_sentences
         )
         
         return {
             "success": True,
             "resource_id": resource_id,
             "extracted_text": vlm_res.get("extracted_text"),
+            "sentences_count": len(analyzed_sentences),
             "created_at": current_time.isoformat()
         }
+    except ValueError as ve:
+        raise HTTPException(status_code=422, detail=str(ve))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"이미지 처리 중 에러 발생: {str(e)}")

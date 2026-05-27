@@ -1,5 +1,5 @@
 from pymongo.database import Database
-from typing import Dict, Any
+from typing import Dict, Any, List
 from datetime import datetime, timezone
 from bson import ObjectId
 
@@ -11,7 +11,8 @@ class ResourceCRUD:
         resource_id: str, 
         user_id: str, 
         cloudinary_url: str, 
-        vlm_res: Dict[str, Any]
+        vlm_res: Dict[str, Any],
+        analyzed_sentences: List[Dict[str, Any]]
     ) -> None:
 
         current_time = datetime.now(timezone.utc)
@@ -22,7 +23,7 @@ class ResourceCRUD:
             "cloudinary_url": cloudinary_url,
             "extracted_text": vlm_res.get("extracted_text"),
             "words": vlm_res.get("layout_coordinates", []),
-            "sentences": [],
+            "sentences": analyzed_sentences,
             "tts_output": None,
             "created_at": current_time,
             "updated_at": current_time
