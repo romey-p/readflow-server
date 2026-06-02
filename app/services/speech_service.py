@@ -1,8 +1,8 @@
 import html
 import os
 import json
-from google.cloud import texttospeech
-from typing import List, Dict, Any
+from google.cloud import texttospeech_v1beta1 as texttospeech
+from typing import List, Dict, Any, Tuple
 from google import genai
 from google.genai import types
 
@@ -79,7 +79,7 @@ class SpeechService:
             print(f"Gemini 연동 실패: {str(e)}")
             return [{"chunk_text": text, "pause_ms": 0}]
 
-    def synthesize_adaptive_audio(self, analyzed_sentences: List[Dict[str, Any]]) -> bytes:
+    def synthesize_adaptive_audio(self, analyzed_sentences: List[Dict[str, Any]]) -> Tuple[bytes, List[Dict[str, Any]]]:
         if not analyzed_sentences:
             raise ValueError("음성 합성을 수행할 지문 데이터가 존재하지 않습니다.")
 
@@ -87,6 +87,7 @@ class SpeechService:
 
         for s in analyzed_sentences:
             level = int(s.get("difficulty_level", 3))
+            sentence_idx = s.get("sentence_index", 0)
             text = s.get("sentence_text", "")
             speed = SPEED_MAP.get(level, "100%")  
 
@@ -94,11 +95,21 @@ class SpeechService:
 
             ssml_text += f'<s><prosody rate="{speed}">'
 
+            word_idx = 0
+
             for i, item in enumerate(chunks):
-                chunk_text = html.escape(item.get("chunk_text", ""))
+                chunk_text = item.get("chunk_text", "")
                 pause_ms = item.get("pause_ms", 0)
 
-                ssml_text += chunk_text
+                if not chunk_text:
+                    continue
+
+                words = chunk_text.split()
+                for w in words:
+                    escaped_word = html.escape(w)
+                    ssml_text += f'<mark name="w_{sentence_idx}_{word_idx}"/>{escaped_word} '
+                    word_idx += 1
+
                 if pause_ms > 0 and i < len(chunks) - 1:
                     ssml_text += f'<break time="{pause_ms}ms"/>'
 
@@ -108,12 +119,24 @@ class SpeechService:
 
         try:
             synthesis_input = texttospeech.SynthesisInput(ssml=ssml_text)
-            response = self.tts_client.synthesize_speech(
+            request = texttospeech.SynthesizeSpeechRequest(
                 input=synthesis_input, 
                 voice=self.voice, 
-                audio_config=self.audio_config
+                audio_config=self.audio_config,
+                enable_time_pointing=[texttospeech.SynthesizeSpeechRequest.TimepointType.SSML_MARK]
             )
-            return response.audio_content
+
+            response = self.tts_client.synthesize_speech(request=request)
+
+            timepoints_data = [
+                {
+                    "mark_name": tp.mark_name,     
+                    "time_seconds": tp.time_seconds  
+                }
+                for tp in response.timepoints
+            ]
+            return response.audio_content, timepoints_data
+        
         except Exception as e:
             print(f"Google TTS API 연동 실패: {str(e)}")
             print(f"[DEBUG] 전송 시도한 SSML 본문 구조:\n{ssml_text}")

@@ -58,6 +58,8 @@ async def process_resource(
             file_bytes=file_bytes, 
             mime_type=file.content_type
         )
+
+        audio_url, timestamps = resource_service.process_audio_synthesis(analyzed_sentences)
         
         resource_crud.create_resource(
             db=db, 
@@ -65,7 +67,9 @@ async def process_resource(
             user_id=user_id, 
             image_url=image_url, 
             vlm_res=vlm_res,
-            analyzed_sentences=analyzed_sentences
+            analyzed_sentences=analyzed_sentences,
+            audio_url=audio_url,
+            timestamps=timestamps
         )
 
         background_tasks.add_task(
@@ -80,10 +84,11 @@ async def process_resource(
             "resource_id": resource_id,
             "extracted_text": vlm_res.get("extracted_text"),
             "sentences_count": len(analyzed_sentences),
+            "audio_url": audio_url,
             "created_at": current_time.isoformat()
         }
     except ValueError as ve:
         raise HTTPException(status_code=422, detail=str(ve))
     except Exception as e:
         print(f"리소스 프로세싱 실패: \n{traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail=f"이미지 처리 중 에러 발생: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"리소스 처리 중 에러 발생: {str(e)}")

@@ -1,5 +1,5 @@
 from pymongo.database import Database
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
 from bson import ObjectId
 
@@ -12,7 +12,10 @@ class ResourceCRUD:
         user_id: str, 
         image_url: str, 
         vlm_res: Dict[str, Any],
-        analyzed_sentences: List[Dict[str, Any]]
+        analyzed_sentences: List[Dict[str, Any]],
+        audio_url: Optional[str] = None,
+        timestamps: Optional[List[Dict[str, Any]]] = None
+
     ) -> None:
 
         current_time = datetime.now(timezone.utc)
@@ -32,7 +35,11 @@ class ResourceCRUD:
                 "analyzed_at": current_time
             },
 
-            "tts_output": None,
+            "tts_output": {
+                "audio_url": audio_url,
+                "timestamps": timestamps
+            },
+
             "created_at": current_time,
             "updated_at": current_time
         }
