@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, B
 from pymongo.database import Database
 from bson import ObjectId
 from datetime import datetime, timezone
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 from app.core.db import get_db
 from app.services.resource_service import resource_service
@@ -47,7 +47,7 @@ def generate_audio(resource_id: str, analyzed_sentences: List[Dict[str, Any]], d
 @router.post("")
 async def process_resource(
     background_tasks: BackgroundTasks,
-    user_id: str = Form(..., description="요청 사용자 ID"),
+    user_id: Optional[str] = Form(None, description="요청 사용자 ID (비로그인 시 생략 가능)"),
     file: UploadFile = File(..., description="업로드 지문 이미지"),
     db: Database = Depends(get_db)
 ):
@@ -61,6 +61,8 @@ async def process_resource(
     file_bytes = await file.read()
     resource_id = str(ObjectId())
     current_time = datetime.now(timezone.utc)
+
+    resolved_user_id = user_id.strip() if (user_id and user_id.strip()) else "guest"
     
     try:
         image_url, vlm_res, analyzed_sentences = resource_service.process_text_extraction_and_analysis(
@@ -73,7 +75,7 @@ async def process_resource(
         resource_crud.create_resource(
             db=db, 
             resource_id=resource_id, 
-            user_id=user_id, 
+            user_id=resolved_user_id, 
             image_url=image_url, 
             vlm_res=vlm_res,
             analyzed_sentences=analyzed_sentences,
@@ -93,6 +95,7 @@ async def process_resource(
         return {
             "success": True,
             "resource_id": resource_id,
+            "user_id": resolved_user_id,
             "extracted_text": vlm_res.get("extracted_text"),
             "sentences_count": len(analyzed_sentences),
             "audio_url": audio_url,
