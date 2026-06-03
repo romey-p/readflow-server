@@ -32,18 +32,27 @@ class SpeechService:
 
         self.ai_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
-    def _inject_natural_pauses(self, text: str, level: int) -> str:
-        if not text:
-            return ""
+    def _inject_natural_pauses(self, sentences: List[Dict[str, Any]]) -> Dict[int, List[Dict[str, Any]]]:
+        if not sentences:
+            return {}
         
-        base_pause = 150 + (level * 30)
+        input_data = []
+        for s in sentences:
+            level = int(s.get("difficulty_level", 3))
+            base_pause = 150 + (level * 30)
+            input_data.append({
+                "sentence_index": s.get("sentence_index"),
+                "sentence_text": s.get("sentence_text"),
+                "base_pause_ms": base_pause
+            })
+        
         contents = f"""
         [지시사항]
-        아래 입력 문장을 분석하여 끊어 읽기 처리를 하세요. 
-        숨을 쉬어 가야 하는 주요 지점의 기준 가이드라인 쉼 시간은 {base_pause}ms 입니다. 
+        아래 제공된 모든 문장 목록을 각각 정밀하게 분석하여 자연스러운 끊어 읽기 처리를 하세요.
+        숨을 쉬어 가야 하는 주요 지점의 기준 가이드라인 쉼 시간은 각 문장 오브젝트 내의 'base_pause_ms' 값을 적용하세요. 
 
-        [입력 문장]
-        "{text}"
+        [입력 문장 목록]
+        {json.dumps(input_data, ensure_ascii=False, indent=2)}
         """
 
         try:
@@ -58,43 +67,39 @@ class SpeechService:
                 )
             )
             data = json.loads(response.text)
-            raw_chunks = data.get("chunks", [])
-
-            normalized_chunks = []
-
-            if isinstance(raw_chunks, dict):
-                raw_chunks = [raw_chunks]
-            elif isinstance(raw_chunks, str):
-                raw_chunks = [{"chunk_text": raw_chunks, "pause_ms": 0}]
-
-            for item in raw_chunks:
-                if isinstance(item, str):
-                    normalized_chunks.append({"chunk_text": item, "pause_ms": 0})
-                elif isinstance(item, dict):
-                    normalized_chunks.append(item)
-                    
-            return normalized_chunks
+            sentences_breakdown = data.get("sentences", [])
+            
+            result_map = {}
+            for item in sentences_breakdown:
+                s_idx = item.get("sentence_index")
+                chunks = item.get("chunks", [])
+                result_map[s_idx] = chunks
+            return result_map
             
         except Exception as e:
             print(f"Gemini 연동 실패: {str(e)}")
-            return [{"chunk_text": text, "pause_ms": 0}]
+            return {s.get("sentence_index"): [{"chunk_text": s.get("sentence_text", ""), "pause_ms": 0}] for s in sentences}
 
-    def synthesize_adaptive_audio(self, analyzed_sentences: List[Dict[str, Any]]) -> Tuple[bytes, List[Dict[str, Any]]]:
+    def synthesize_adaptive_audio(self, analyzed_sentences: List[Dict[str, Any]]) -> Tuple[bytes, List[Dict[str, Any]], Dict[str, str]]:
         if not analyzed_sentences:
             raise ValueError("음성 합성을 수행할 지문 데이터가 존재하지 않습니다.")
+        
+        batch_pauses = self._inject_natural_pauses(analyzed_sentences)
 
         ssml_text = "<speak>"
+        speaking_rates = {}
 
         for s in analyzed_sentences:
             level = int(s.get("difficulty_level", 3))
             sentence_idx = s.get("sentence_index", 0)
             text = s.get("sentence_text", "")
-            speed = SPEED_MAP.get(level, "100%")  
+            speed = SPEED_MAP.get(level, "100%")
 
-            chunks = self._inject_natural_pauses(text, level)
+            speaking_rates[str(sentence_idx)] = speed 
+
+            chunks = batch_pauses.get(sentence_idx, [{"chunk_text": text, "pause_ms": 0}])
 
             ssml_text += f'<s><prosody rate="{speed}">'
-
             word_idx = 0
 
             for i, item in enumerate(chunks):
@@ -135,7 +140,7 @@ class SpeechService:
                 }
                 for tp in response.timepoints
             ]
-            return response.audio_content, timepoints_data
+            return response.audio_content, timepoints_data, speaking_rates
         
         except Exception as e:
             print(f"Google TTS API 연동 실패: {str(e)}")

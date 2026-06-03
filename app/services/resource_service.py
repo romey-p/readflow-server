@@ -13,6 +13,7 @@ from app.core.prompts import VLM_SYSTEM_PROMPT
 from app.schemas.resource_schema import TextExtractionResponse
 from app.services.analysis_service import analysis_service
 from app.services.speech_service import speech_service
+from app.crud.resource_crud import resource_crud
 
 ai_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
@@ -116,10 +117,53 @@ class ResourceService:
         return image_url, vlm_res, analyzed_sentences
     
     @classmethod
-    def process_audio_synthesis(cls, analyzed_sentences: list) -> tuple[str, list]:
-        audio_bytes, timestamps = speech_service.synthesize_adaptive_audio(analyzed_sentences)
+    def process_audio_synthesis(cls, analyzed_sentences: list) -> tuple[str, list, float, dict]:
+        audio_bytes, timestamps, speaking_rates = speech_service.synthesize_adaptive_audio(analyzed_sentences)
         audio_url = cls.upload_audio(audio_bytes)
+        duration_seconds = timestamps[-1]["time_seconds"] if timestamps else 0.0
 
-        return audio_url, timestamps
-        
+        return audio_url, timestamps, duration_seconds, speaking_rates
+    
+    @classmethod
+    def get_resource_info(cls, db, resource_id: str) -> dict:
+        doc = resource_crud.get_resource_by_id(db, resource_id)
+        if not doc:
+            return None
+
+        sentences_data = doc.get("model_output", {}).get("sentences", [])
+        sentences = [
+            {
+                "sentence_index": s.get("sentence_index"),
+                "sentence_text": s.get("sentence_text"),
+                "difficulty_score": s.get("difficulty_score"),
+                "difficulty_level": s.get("difficulty_level")
+            }
+            for s in sentences_data
+        ]
+
+        tts_output = doc.get("tts_output", {})
+
+        return {
+            "resource_id": str(doc["_id"]),
+            "user_id": doc.get("user_id", ""),
+            "image_url": doc.get("image_url", ""),
+            "extracted_text": doc.get("vlm_output", {}).get("extracted_text", ""),
+            "audio_url": tts_output.get("audio_url"),
+            "speaking_rate": tts_output.get("speaking_rate", "adaptive"),
+            "duration_seconds": tts_output.get("duration_seconds", 0.0),
+            "sentences": sentences,
+            "created_at": doc.get("created_at")
+        }
+    
+    @classmethod
+    def get_resource_coordinates(cls, db, resource_id: str) -> dict:
+        doc = resource_crud.get_resource_by_id(db, resource_id)
+        if not doc:
+            return None
+
+        return {
+            "resource_id": str(doc["_id"]),
+            "layout_coordinates": doc.get("vlm_output", {}).get("layout_coordinates", [])
+        }
+       
 resource_service = ResourceService()

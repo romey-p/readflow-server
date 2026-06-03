@@ -14,8 +14,9 @@ class ResourceCRUD:
         vlm_res: Dict[str, Any],
         analyzed_sentences: List[Dict[str, Any]],
         audio_url: Optional[str] = None,
-        timestamps: Optional[List[Dict[str, Any]]] = None
-
+        timestamps: Optional[List[Dict[str, Any]]] = None,
+        speaking_rate: Optional[str] = "adaptive",
+        duration_seconds: Optional[float] = 0.0
     ) -> None:
 
         current_time = datetime.now(timezone.utc)
@@ -37,7 +38,9 @@ class ResourceCRUD:
 
             "tts_output": {
                 "audio_url": audio_url,
-                "timestamps": timestamps
+                "timestamps": timestamps,
+                "speaking_rate": speaking_rate,
+                "duration_seconds": duration_seconds,
             },
 
             "created_at": current_time,
@@ -47,26 +50,40 @@ class ResourceCRUD:
         db["resources"].insert_one(new_document)
 
     @staticmethod
-    def update_audio_output(db: Database, resource_id: str, audio_url: str, speaking_rate: str = None) -> bool:
+    def update_audio_output(
+        db: Database, resource_id: 
+        str, audio_url: str, 
+        speaking_rate: str = "adaptive",
+        duration_seconds: float = 0.0,
+        timestamps: Optional[List[Dict[str, Any]]] = None
+    ) -> bool:
         try:
+            update_data = {
+                "tts_output.audio_url": audio_url,
+                "tts_output.speaking_rate": speaking_rate,      
+                "tts_output.duration_seconds": duration_seconds, 
+                "tts_output.generated_at": datetime.now(timezone.utc),
+                "updated_at": datetime.now(timezone.utc)
+            }
+            if timestamps is not None:
+                update_data["tts_output.timestamps"] = timestamps
+
             result = db["resources"].update_one(
                 {"_id": ObjectId(resource_id)},
-                {
-                    "$set": {
-                        "tts_output": {
-                        "audio_url": audio_url,
-                        "speaking_rate": speaking_rate if speaking_rate else "adaptive",
-                        "duration_seconds": None, 
-                        "generated_at": datetime.now(timezone.utc)
-                    },
-                    "updated_at": datetime.now(timezone.utc) 
-                    }
-                }
+                {"$set": update_data}
             )
             return result.modified_count > 0
             
         except Exception as e:
             print(f"오디오 URL 저장 실패: {str(e)}")
             return False
+        
+    @staticmethod
+    def get_resource_by_id(db: Database, resource_id: str) -> Optional[Dict[str, Any]]:
+        try:
+            return db["resources"].find_one({"_id": ObjectId(resource_id)})
+        except Exception as e:
+            print(f"리소스를 찾을 수 없습니다 ({resource_id}): {str(e)}")
+            return None
 
 resource_crud = ResourceCRUD()

@@ -9,6 +9,7 @@ from app.core.db import get_db
 from app.services.resource_service import resource_service
 from app.services.speech_service import speech_service
 from app.crud.resource_crud import resource_crud
+from app.schemas.resource_schema import ResourceInfoResponse, ResourceCoordinateResponse
 
 router = APIRouter(prefix="/api/resources", tags=["Resources"])
 
@@ -22,11 +23,19 @@ ALLOWED_MIME_TYPES = {
 def generate_audio(resource_id: str, analyzed_sentences: List[Dict[str, Any]], db: Database):
     try:
         print(f"[Resource: {resource_id}] 가변 속도 음성 합성 시작")
-        audio_bytes = speech_service.synthesize_adaptive_audio(analyzed_sentences)
+        audio_bytes, timestamps, speaking_rates = speech_service.synthesize_adaptive_audio(analyzed_sentences)
         
-        cloudinary_audio_url = resource_service.upload_audio(audio_bytes)
+        audio_url = resource_service.upload_audio(audio_bytes)
+        duration_seconds = timestamps[-1]["time_seconds"] if timestamps else 0.0
         
-        success = resource_crud.update_audio_output(db, resource_id, cloudinary_audio_url)
+        success = resource_crud.update_audio_output(
+            db=db,
+            resource_id=resource_id,
+            audio_url=audio_url,
+            speaking_rate=speaking_rates,
+            duration_seconds=duration_seconds,
+            timestamps=timestamps
+        )
         if success:
             print(f"[Resource: {resource_id}] 가변 배속 오디오 파이프라인 연동 완료")
         else:
@@ -59,7 +68,7 @@ async def process_resource(
             mime_type=file.content_type
         )
 
-        audio_url, timestamps = resource_service.process_audio_synthesis(analyzed_sentences)
+        audio_url, timestamps, duration_seconds, speaking_rates = resource_service.process_audio_synthesis(analyzed_sentences)
         
         resource_crud.create_resource(
             db=db, 
@@ -69,7 +78,9 @@ async def process_resource(
             vlm_res=vlm_res,
             analyzed_sentences=analyzed_sentences,
             audio_url=audio_url,
-            timestamps=timestamps
+            timestamps=timestamps,
+            speaking_rate=speaking_rates,
+            duration_seconds=duration_seconds
         )
 
         background_tasks.add_task(
@@ -92,3 +103,17 @@ async def process_resource(
     except Exception as e:
         print(f"리소스 프로세싱 실패: \n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"리소스 처리 중 에러 발생: {str(e)}")
+    
+@router.get("/{resource_id}", response_model=ResourceInfoResponse)
+def get_resource_info(resource_id: str, db: Database = Depends(get_db)):
+    result = resource_service.get_resource_info(db, resource_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="해당 리소스를 데이터베이스에서 찾을 수 없습니다.")
+    return result
+
+@router.get("/{resource_id}/coordinates", response_model=ResourceCoordinateResponse)
+def get_resource_coordinates(resource_id: str, db: Database = Depends(get_db)):
+    result = resource_service.get_resource_coordinates(db, resource_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="해당 리소스를 데이터베이스에서 찾을 수 없습니다.")
+    return result
