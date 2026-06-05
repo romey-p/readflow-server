@@ -78,6 +78,11 @@ class ResourceService:
         combined_user_prompt = (
             f"{reinforced_prompt}\n\n"
             "제공된 교육용 지문 이미지의 레이아웃을 쪼개어 정밀 OCR 및 문장별 좌표 인덱싱 분석을 진행해 주세요."
+            "[CRITICAL SENTENCE INDEXING RULES]:\n"
+            "1. 쉼표(,), 인용구(“, ”), 혹은 줄바꿈(Line break)이 존재한다고 해서 절대로 'sentence_index'를 증가시키지 마세요.\n"
+            "2. 'sentence_index'는 오직 하나의 문장이 마침표(.), 물음표(?), 느낌표(!)로 완벽하게 종결될 때만 +1 증가해야 합니다.\n"
+            "3. 예를 들어, '~영감을 받은 시인은, 특히 인상 깊었던 것은~ 느낌을 밝혔다.' 전체가 하나의 마침표로 끝나므로, 문장 중간에 쉼표나 따옴표가 아무리 많아도 이 구절에 속한 모든 단어들의 'sentence_index'는 완벽하게 동일한 숫자로 묶여야 합니다.\n"
+            "4. 서술어 문장 성분이 종결되기 전까지 문맥을 임의로 두 토막 내지 마세요."
         )
 
         payload = {
@@ -180,26 +185,48 @@ class ResourceService:
         vlm_res = cls.extract_layout(file_bytes, mime_type)
         word_layouts = vlm_res.get("layout_coordinates", [])
 
-        sentence_buckets = defaultdict(list)
+        sentence_word_objects = defaultdict(list)
         for item in word_layouts:
             idx = item.get("sentence_index")
             if idx is None:
                 idx = item.get("index") or item.get("sentence") or 0
+            sentence_word_objects[int(idx)].append(item)
 
-            word = item.get("word")
-            if word is None:
-                word = item.get("text") or item.get("word_text") or ""
+        consolidated_sentences = []
+        current_words = []
+        
+        sorted_indices = sorted(sentence_word_objects.keys())
 
-            sentence_buckets[int(idx)].append(str(word))
+        for i, idx in enumerate(sorted_indices):
+            words_in_bucket = sentence_word_objects[idx]
+            current_words.extend(words_in_bucket)
             
-        analyzed_sentences = []
+            temp_text = " ".join([item.get("word", "") for item in current_words]).strip()
+            
+            if (temp_text.endswith(('.', '?', '!')) or 
+                temp_text.endswith(('."', '?"', '!"', '.”', '?”', '!”')) or 
+                i == len(sorted_indices) - 1):
+                
+                consolidated_sentences.append(current_words)
+                current_words = []
 
-        for idx in sorted(sentence_buckets.keys()):
-            reconstructed_text = " ".join(sentence_buckets[idx])
+        if current_words:
+            if consolidated_sentences:
+                consolidated_sentences[-1].extend(current_words)
+            else:
+                consolidated_sentences.append(current_words)
+
+        analyzed_sentences = []
+        
+        for new_idx, word_obj_list in enumerate(consolidated_sentences):
+            for item in word_obj_list:
+                item["sentence_index"] = new_idx
+                
+            reconstructed_text = " ".join([item.get("word", "") for item in word_obj_list])
             predicted_score, difficulty_level = analysis_service.predict_score(reconstructed_text)
 
             analyzed_sentences.append({
-                "sentence_index": idx,
+                "sentence_index": new_idx,
                 "sentence_text": reconstructed_text,
                 "difficulty_score": predicted_score,
                 "difficulty_level": difficulty_level
