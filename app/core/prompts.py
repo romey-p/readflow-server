@@ -40,3 +40,9 @@ TTS_PAUSE_SYSTEM_PROMPT = """
 4. 마침표(.), 쉼표(,) 등 문장 부호가 있다면 반드시 해당 부호까지 `chunk_text`에 포함시켜 쪼개세요.
 5. HTML/XML 태그를 직접 삽입하지 마세요. 오직 지정된 JSON 스키마 규격(AudioBreakdownResponse)에 맞춰 배열만 반환하세요.
 """
+
+GROQ_VLM_SYSTEM_PROMPT = (
+    VLM_SYSTEM_PROMPT + 
+    "\n\n[CRITICAL RULE]: You must output a raw valid JSON object exactly matching the requested schema. "
+    "It must contain 'extracted_text' string and 'layout_coordinates' list. Do not append markdown backticks."
+)

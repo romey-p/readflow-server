@@ -4,6 +4,8 @@ import cloudinary.uploader
 import json
 import time
 import io
+import base64
+import httpx
 from fastapi import HTTPException
 from google import genai
 from google.genai import types
@@ -15,7 +17,8 @@ from app.services.analysis_service import analysis_service
 from app.services.speech_service import speech_service
 from app.crud.resource_crud import resource_crud
 
-ai_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+# ai_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+groq_api_key = os.getenv("GROQ_API_KEY")
 
 cloudinary.config(
     cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
@@ -58,35 +61,89 @@ class ResourceService:
     @staticmethod
     def extract_layout(file_bytes: bytes, mime_type: str) -> dict:
 
+        base64_image = base64.b64encode(file_bytes).decode('utf-8')
+
+        groq_url = "https://api.groq.com/openai/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {groq_api_key}",
+            "Content-Type": "application/json"
+        }
+
+        reinforced_prompt = (
+            VLM_SYSTEM_PROMPT + 
+            "\n\n[CRITICAL RULE]: You must output a raw valid JSON object exactly matching the requested schema. "
+            "It must contain 'extracted_text' string and 'layout_coordinates' list. Do not append markdown backticks."
+        )
+
+        combined_user_prompt = (
+            f"{reinforced_prompt}\n\n"
+            "제공된 교육용 지문 이미지의 레이아웃을 쪼개어 정밀 OCR 및 문장별 좌표 인덱싱 분석을 진행해 주세요."
+        )
+
+        payload = {
+            "model": "meta-llama/llama-4-scout-17b-16e-instruct", 
+            "messages": [
+                {
+                    "role": "user",  
+                    "content": [
+                        {"type": "text", "text": combined_user_prompt},
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:{mime_type};base64,{base64_image}"
+                            }
+                        }
+                    ]
+                }
+            ],
+            "response_format": {"type": "json_object"}, 
+            "temperature": 0.1
+        }
+
         max_retries = 5
 
         for attempt in range(max_retries):
             try:
-                response = ai_client.models.generate_content(
-                    model="gemini-2.5-flash",
-                    contents=[
-                        types.Part.from_bytes(data=file_bytes, mime_type=mime_type),
-                        "제공된 교육용 지문 이미지의 레이아웃을 쪼개어 정밀 OCR 및 문장별 좌표 인덱싱 분석을 진행해 주세요."
-                    ],
-                    config=types.GenerateContentConfig(
-                        system_instruction=VLM_SYSTEM_PROMPT, 
-                        response_mime_type="application/json",
-                        response_schema=TextExtractionResponse
-                    )
-                )
-                return json.loads(response.text)
+                # response = ai_client.models.generate_content(
+                #     model="gemini-2.5-flash",
+                #     contents=[
+                #         types.Part.from_bytes(data=file_bytes, mime_type=mime_type),
+                #         "제공된 교육용 지문 이미지의 레이아웃을 쪼개어 정밀 OCR 및 문장별 좌표 인덱싱 분석을 진행해 주세요."
+                #     ],
+                #     config=types.GenerateContentConfig(
+                #         system_instruction=VLM_SYSTEM_PROMPT, 
+                #         response_mime_type="application/json",
+                #         response_schema=TextExtractionResponse
+                #     )
+                # )
+                # return json.loads(response.text)
+                with httpx.Client(timeout=30.0) as client:
+                    response = client.post(groq_url, headers=headers, json=payload)
+                    response.raise_for_status()
+                    
+                    result_json = response.json()
+                    content_str = result_json["choices"][0]["message"]["content"]
+                    
+                    return json.loads(content_str)
                 
+            # except Exception as e:
+            #     error_msg = str(e)
+                
+            #     if "503" in error_msg or "high demand" in error_msg.lower() or "unavailable" in error_msg.lower():
+            #         if attempt < max_retries - 1:
+            #             sleep_time = 2 ** (attempt + 1)
+            #             print(f"[Warning] 구글 서버 부하 감지. {sleep_time}초 후 다시 시도합니다. ({attempt + 1}/{max_retries})")
+            #             time.sleep(sleep_time)
+            #             continue
+                
+            #     raise ValueError(f"VLM 처리 중 오류 발생: {error_msg}")
             except Exception as e:
-                error_msg = str(e)
-                
-                if "503" in error_msg or "high demand" in error_msg.lower() or "unavailable" in error_msg.lower():
-                    if attempt < max_retries - 1:
-                        sleep_time = 2 ** (attempt + 1)
-                        print(f"[Warning] 구글 서버 부하 감지. {sleep_time}초 후 다시 시도합니다. ({attempt + 1}/{max_retries})")
-                        time.sleep(sleep_time)
-                        continue
-                
-                raise ValueError(f"VLM 처리 중 오류 발생: {error_msg}")
+                print(f"Groq 시도 {attempt + 1}/{max_retries}] 지연 발생 사유: {str(e)}")
+                if attempt < max_retries - 1:
+                    sleep_time = 2 ** (attempt + 1)
+                    time.sleep(sleep_time)
+                    continue
+                raise ValueError(f"Groq 연동 실패: {str(e)}")
         
     @classmethod
     def process_text_extraction_and_analysis(cls, file_bytes: bytes, mime_type: str) -> tuple[str, dict, list]:

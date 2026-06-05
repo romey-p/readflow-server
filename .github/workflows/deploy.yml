@@ -47,4 +47,4 @@ jobs:
           --min-instances=1 \
           --memory=1Gi \
           --port=8000 \
-          --set-env-vars "ML_SERVER_URL=${{ secrets.ML_SERVER_URL }},MONGO_URI=${{ secrets.MONGO_URI }},DATABASE_NAME=${{ secrets.DATABASE_NAME }},CLOUDINARY_CLOUD_NAME=${{ secrets.CLOUDINARY_CLOUD_NAME }},CLOUDINARY_API_KEY=${{ secrets.CLOUDINARY_API_KEY }},CLOUDINARY_API_SECRET=${{ secrets.CLOUDINARY_API_SECRET }},GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}"
+          --set-env-vars "ML_SERVER_URL=${{ secrets.ML_SERVER_URL }},MONGO_URI=${{ secrets.MONGO_URI }},DATABASE_NAME=${{ secrets.DATABASE_NAME }},CLOUDINARY_CLOUD_NAME=${{ secrets.CLOUDINARY_CLOUD_NAME }},CLOUDINARY_API_KEY=${{ secrets.CLOUDINARY_API_KEY }},CLOUDINARY_API_SECRET=${{ secrets.CLOUDINARY_API_SECRET }},GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}, GROQ_API_KEY=${{ secrets.GROQ_API_KEY }}"
