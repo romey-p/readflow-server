@@ -39,6 +39,8 @@ class SpeechService:
             return {}
         
         groq_api_key = os.getenv("GROQ_API_KEY")
+        if not groq_api_key:
+            return {s.get("sentence_index"): [{"chunk_text": s.get("sentence_text", ""), "pause_ms": 0}] for s in sentences}
         
         input_data = []
         for s in sentences:
@@ -88,7 +90,39 @@ class SpeechService:
                     "content": combined_prompt
                 }
             ],
-            "response_format": {"type": "json_object"},
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "AudioBreakdownResponse",
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "sentences": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "sentence_index": {"type": "integer"},
+                                        "chunks": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "chunk_text": {"type": "string"},
+                                                    "pause_ms": {"type": "integer"}
+                                                },
+                                                "required": ["chunk_text", "pause_ms"]
+                                            }
+                                        }
+                                    },
+                                    "required": ["sentence_index", "chunks"]
+                                }
+                            }
+                        },
+                        "required": ["sentences"]
+                    }
+                }
+            },
             "temperature": 0.1
         }
 
@@ -108,9 +142,10 @@ class SpeechService:
                     
                     result_map = {}
                     for item in sentences_breakdown:
-                        s_idx = item.get("sentence_index")
+                        s_idx = item.get("sentence_index") if item.get("sentence_index") is not None else item.get("index")
                         chunks = item.get("chunks", [])
-                        result_map[s_idx] = chunks
+                        if s_idx is not None:
+                            result_map[int(s_idx)] = chunks
                     return result_map
 
         # try:
@@ -139,11 +174,11 @@ class SpeechService:
         #     return {s.get("sentence_index"): [{"chunk_text": s.get("sentence_text", ""), "pause_ms": 0}] for s in sentences}
         
             except Exception as e:
-                    if attempt < max_retries - 1:
-                        time.sleep(2 ** (attempt + 1))
-                        continue
-                    
-                    return {s.get("sentence_index"): [{"chunk_text": s.get("sentence_text", ""), "pause_ms": 0}] for s in sentences}
+                if attempt < max_retries - 1:
+                    time.sleep(2 ** (attempt + 1))
+                    continue
+                
+                return {s.get("sentence_index"): [{"chunk_text": s.get("sentence_text", ""), "pause_ms": 0}] for s in sentences}
 
     def synthesize_adaptive_audio(self, analyzed_sentences: List[Dict[str, Any]]) -> Tuple[bytes, List[Dict[str, Any]], Dict[str, str]]:
         if not analyzed_sentences:

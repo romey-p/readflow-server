@@ -18,7 +18,6 @@ from app.services.speech_service import speech_service
 from app.crud.resource_crud import resource_crud
 
 # ai_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
-groq_api_key = os.getenv("GROQ_API_KEY")
 
 cloudinary.config(
     cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
@@ -60,6 +59,7 @@ class ResourceService:
         
     @staticmethod
     def extract_layout(file_bytes: bytes, mime_type: str) -> dict:
+        groq_api_key = os.getenv("GROQ_API_KEY")
 
         base64_image = base64.b64encode(file_bytes).decode('utf-8')
 
@@ -96,8 +96,36 @@ class ResourceService:
                     ]
                 }
             ],
-            "response_format": {"type": "json_object"}, 
-            "temperature": 0.1
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "TextExtractionResponse",
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "extracted_text": {"type": "string"},
+                            "layout_coordinates": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "word": {"type": "string"},
+                                        "sentence_index": {"type": "integer"},
+                                        "bbox": {
+                                            "type": "array",
+                                            "items": {"type": "integer"}
+                                        }
+                                    },
+                                    "required": ["word", "sentence_index", "bbox"]
+                                }
+                            }
+                        },
+                        "required": ["extracted_text", "layout_coordinates"]
+                    }
+                }
+            }, 
+            "temperature": 0.1,
+            "max_tokens": 4096
         }
 
         max_retries = 5
@@ -155,8 +183,14 @@ class ResourceService:
         sentence_buckets = defaultdict(list)
         for item in word_layouts:
             idx = item.get("sentence_index")
+            if idx is None:
+                idx = item.get("index") or item.get("sentence") or 0
+
             word = item.get("word")
-            sentence_buckets[idx].append(word)
+            if word is None:
+                word = item.get("text") or item.get("word_text") or ""
+
+            sentence_buckets[int(idx)].append(str(word))
             
         analyzed_sentences = []
 
@@ -200,13 +234,21 @@ class ResourceService:
 
         tts_output = doc.get("tts_output", {})
 
+        raw_speaking_rate = tts_output.get("speaking_rate")
+        if isinstance(raw_speaking_rate, dict):
+            final_speaking_rate = raw_speaking_rate
+        elif isinstance(raw_speaking_rate, str):
+            final_speaking_rate = {"default": raw_speaking_rate}
+        else:
+            final_speaking_rate = {"default": "adaptive"}
+
         return {
             "resource_id": str(doc["_id"]),
             "user_id": doc.get("user_id", ""),
             "image_url": doc.get("image_url", ""),
             "extracted_text": doc.get("vlm_output", {}).get("extracted_text", ""),
             "audio_url": tts_output.get("audio_url"),
-            "speaking_rate": tts_output.get("speaking_rate"),
+            "speaking_rate": final_speaking_rate,
             "duration_seconds": tts_output.get("duration_seconds", 0.0),
             "sentences": sentences,
             "timestamps": tts_output.get("timestamps", []),
