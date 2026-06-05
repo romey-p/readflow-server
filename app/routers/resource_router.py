@@ -84,13 +84,6 @@ async def process_resource(
             speaking_rate=speaking_rates,
             duration_seconds=duration_seconds
         )
-
-        background_tasks.add_task(
-            generate_audio,
-            resource_id=resource_id,
-            analyzed_sentences=analyzed_sentences,
-            db=db
-        )
         
         return {
             "success": True,

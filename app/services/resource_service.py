@@ -58,7 +58,7 @@ class ResourceService:
     @staticmethod
     def extract_layout(file_bytes: bytes, mime_type: str) -> dict:
 
-        max_retries = 3
+        max_retries = 5
 
         for attempt in range(max_retries):
             try:
@@ -81,7 +81,7 @@ class ResourceService:
                 
                 if "503" in error_msg or "high demand" in error_msg.lower() or "unavailable" in error_msg.lower():
                     if attempt < max_retries - 1:
-                        sleep_time = (attempt + 1) * 2
+                        sleep_time = 2 ** (attempt + 1)
                         print(f"[Warning] 구글 서버 부하 감지. {sleep_time}초 후 다시 시도합니다. ({attempt + 1}/{max_retries})")
                         time.sleep(sleep_time)
                         continue
