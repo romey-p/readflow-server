@@ -149,7 +149,7 @@ class ResourceService:
             "image_url": doc.get("image_url", ""),
             "extracted_text": doc.get("vlm_output", {}).get("extracted_text", ""),
             "audio_url": tts_output.get("audio_url"),
-            "speaking_rate": tts_output.get("speaking_rate", "adaptive"),
+            "speaking_rate": tts_output.get("speaking_rate"),
             "duration_seconds": tts_output.get("duration_seconds", 0.0),
             "sentences": sentences,
             "timestamps": tts_output.get("timestamps", []),
